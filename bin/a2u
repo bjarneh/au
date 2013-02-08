@@ -237,7 +237,7 @@ def guess_encoding( fname ):
     elif looks_extended( buf ):
         enc = '8bit'
     else:
-        enc = 'unknown '
+        enc = 'unknown'
 
     return enc, buf
 
