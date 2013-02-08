@@ -307,8 +307,8 @@ def parse_argv(argv):
 
     global regexp
     global recursive
-    global confidence
     global convert
+    global ignored
 
     long_opts = ['help',
                  'recursive',
