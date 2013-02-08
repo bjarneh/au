@@ -18,9 +18,9 @@
 #
 """
 
- a2u - convert files from other encodings to utf-8
+ au - convert files from other encodings to utf-8
 
- usage: a2u [OPTIONS] <FILE1> <FILE2> <DIR>..
+ usage: au [OPTIONS] <FILE1> <FILE2> <DIR>..
 
  options:
 
@@ -40,7 +40,7 @@ import codecs
 import getopt
 
 
-__version__ = 'a2u 1.0'
+__version__ = 'au 1.0'
 __author__  = 'bjarneh@ifi.uio.no'
 
 
