@@ -260,9 +260,9 @@ def guess_encoding( fname ):
 
 def path_walk(dir_name, regx, exclude):
     """
-    traverse 'dir_name', collected files matching 'criteria'
+    traverse 'dir_name', collected files matching 'regx'
     and ignore directories with names in comma-separated
-    list found in exclude
+    list found in 'exclude'
     """
 
     ignore_dirs = None
