@@ -1,0 +1,383 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+#
+"""
+
+ a2u - convert files from other encodings to utf-8
+
+ usage: a2u [OPTIONS] <FILE1> <FILE2> <DIR>..
+
+ options:
+
+     -h  --help       :  print this menu and exit
+     -v  --version    :  print version and exit
+     -c  --convert    :  convert format to utf-8, don't just guess
+     -i  --ignored    :  ignored directories (default: .hg,.svn,.bzr,.git)
+     -r  --recursive  :  allow recursive traversal of directories
+     -R  --regexp     :  only convert files matching regexp (default: '.+')
+
+"""
+
+import os
+import re
+import sys
+import codecs
+import getopt
+
+
+__version__ = 'a2u 1.0'
+__author__  = 'bjarneh@ifi.uio.no'
+
+
+# ----------------------------------------------------------------------------
+# Globals
+# ----------------------------------------------------------------------------
+
+convert    = False
+recursive  = False
+ignored    = '.svn,.bzr,.hg,.git'
+regexp     = re.compile('.+')  # match any file
+
+
+# ----------------------------------------------------------------------------
+# This is stolen from standard Unix/BSD/Linux 'file' program
+# ----------------------------------------------------------------------------
+
+F = 0
+T = 1
+I = 2
+X = 3
+
+
+text_chars = [
+    #                  BEL BS HT LF    FF CR
+    F, F, F, F, F, F, F, T, T, T, T, F, T, T, F, F,  # 0x0X
+    #                              ESC          
+    F, F, F, F, F, F, F, F, F, F, F, T, F, F, F, F,  # 0x1X
+    T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T,  # 0x2X
+    T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T,  # 0x3X
+    T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T,  # 0x4X
+    T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T,  # 0x5X
+    T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, T,  # 0x6X
+    T, T, T, T, T, T, T, T, T, T, T, T, T, T, T, F,  # 0x7X
+    #            NEL                            
+    X, X, X, X, X, T, X, X, X, X, X, X, X, X, X, X,  # 0x8X
+    X, X, X, X, X, X, X, X, X, X, X, X, X, X, X, X,  # 0x9X
+    I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,  # 0xaX
+    I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,  # 0xbX
+    I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,  # 0xcX
+    I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,  # 0xdX
+    I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,  # 0xeX
+    I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I   # 0xfX
+]
+
+
+enc_info = {'ascii' :     'ASCII',
+            'latin-1' :   'ISO-8859',
+            'utf-8' :     'UTF-8 Unicode',
+            'utf-16be' :  'UTF-16 Unicode (Big-endian)',
+            'utf-16le' :  'UTF-16 Unicode (Little-endian)',
+            '8bit'     :  'Unknown 8-bit encoding',
+            'unknown'  :  'Unknown encoding'}
+
+
+
+def looks_ascii( buf ):
+    """ tell if bytes inside bytearray buf looks ascii """
+    for i in range(0, len(buf)):
+        t = text_chars[ buf[i] ]
+        if t != T:
+            return False
+    return True
+
+
+def looks_latin1( buf ):
+    """ tell if bytes inside bytearray buf looks latin-1 """
+    for i in range(0, len(buf)):
+        t = text_chars[ buf[i] ]
+        if t != T and t != I:
+            return False
+    return True
+
+
+def looks_extended( buf ):
+    """ tell if bytes inside bytearray buf looks like extended ascii """
+    for i in range(0, len(buf)):
+        t = text_chars[ buf[i] ]
+        if t != T and t != I and t != X:
+            return False
+    return True
+
+
+def looks_utf8( buf ):
+    """ tell if bytes inside bytearray buf looks like utf-8 """
+
+    i, gotone, ctrl, end_it = 0, 0, 0, False
+
+    while( i < len(buf)):
+
+        if end_it: break
+
+        if (buf[i] & 0x80) == 0: # 0xxxxxxx is plain ASCII
+            if text_chars[buf[i]] != T:
+                ctrl = 1
+        elif (buf[i] & 0x40) == 0: # 10xxxxxx never 1st byte
+            return -1
+        else:
+
+            following = 0
+
+            if (buf[i] & 0x20) == 0:   # 110xxxxx
+                following = 1
+            elif (buf[i] & 0x10) == 0: # 1110xxxx
+                following = 2
+            elif (buf[i] & 0x08) == 0: # 11110xxx
+                following = 3
+            elif (buf[i] & 0x04) == 0: # 111110xx
+                following = 4
+            elif (buf[i] & 0x02) == 0: # 1111110x
+                following = 5
+            else:
+                return -1
+
+            for n in range(0, following):
+                i += 1
+                if i >= len(buf):
+                    end_it = True
+                    break
+                if (buf[i] & 0x80) == 0 or (buf[i] & 0x40):
+                    return -1
+
+            if not end_it:
+                gotone = 1
+
+        i += 1
+
+    if ctrl == 1:
+        return 0
+    else:
+        if gotone == 1:
+            return 2
+        else:
+            return 1
+
+
+def looks_utf8_with_bom( buf ):
+    """ tell if buf looks like utf-8 with byte order mark """
+    
+    if len(buf) > 3 and buf[0] == 0xef and buf[1] == 0xbb and buf[2] == 0xbf:
+        return looks_utf8( buf[3:] )
+    else:
+        return -1
+
+
+def looks_ucs16( buf ):
+    """ tell if bytes inside bytearray buf looks like utf-16 """
+
+    tmp = 0
+    bigend = False
+
+    if len(buf) < 2:
+        return 0
+
+    if buf[0] == 0xff and buf[1] == 0xfe:
+        bigend = False
+    elif buf[0] == 0xfe and buf[1] == 0xff:
+        bigend = True
+    else:
+        return 0
+
+
+    for i in range(2, len(buf)-1, 2):
+
+        if bigend:
+            tmp = buf[i+1] + 256 * buf[i]
+        else:
+            tmp = buf[i] + 256 * buf[i + 1]
+
+        if tmp == 0xfffe:
+            return 0
+        if tmp < 128 and text_chars[tmp] != T:
+            return 0
+
+    return 1 + bigend # works False and True are 0 and 1 in Python too
+
+
+def binary_slurp( fname ):
+    """ return bytearray of fname file content """
+    fh  = open(fname, 'rb')
+    buf = bytearray(fh.read())
+    fh.close()
+    return buf
+
+
+def guess_encoding( fname ):
+    """ try to guess file encoding based on 'file' src """
+
+    
+    buf = binary_slurp( fname )
+
+    enc = None
+
+    if looks_ascii( buf ):
+        enc = 'ascii'
+    elif looks_utf8_with_bom( buf ) > 0:
+        enc = 'utf-8'
+    elif looks_utf8( buf ) >= 1:
+        enc = 'utf-8'
+    elif looks_ucs16( buf ) != 0:
+        ucs_type = looks_ucs16( buf )
+        if ucs_type == 1:
+            enc = 'utf-16le'
+        else:
+            enc = 'utf-16be'
+    elif looks_latin1( buf ):
+        enc = 'latin-1'
+    elif looks_extended( buf ):
+        enc = '8bit'
+    else:
+        enc = 'unknown '
+
+    return enc, buf
+
+
+#_____________________________________________________________________________
+
+def path_walk(dir_name, regx, exclude):
+    """
+    traverse 'dir_name', collected files matching 'criteria'
+    and ignore directories with names in comma-separated
+    list found in exclude
+    """
+
+    ignore_dirs = None
+    collected   = []
+
+    if exclude: # We ignore .svn/.bzr/.hg/.git by default
+        ignore_dirs = exclude.split(',')
+
+    for root, dirs, files in os.walk(dir_name):
+        # do not look in repository dires (.git,.svn ..)
+        if dirs and ignore_dirs:
+            for ign in ignore_dirs:
+                if ign in dirs: dirs.remove(ign)
+        if files:
+            for f in files:
+                if regx.match(f):
+                    collected.append(os.path.join(root, f))
+
+    return collected
+
+
+# a nicer version of the option parser getopt
+def niceopt(argv, short_opts, long_opts):
+    """ allow long options which start with a single '-' sign"""
+    for i, e in enumerate(argv):
+        for opt in long_opts:
+            if( e.startswith("-" + opt) or
+              ( e.startswith("-" + opt[:-1]) and opt[-1] == "=") ):
+                argv[i] = "-" + e
+    return getopt.getopt(argv, short_opts, long_opts)
+
+
+def write_utf8( fname, ustr ):
+    """ write unicode str to fname """
+    fh = codecs.open( fname, mode='wb', encoding='utf-8' )
+    fh.write( ustr )
+    fh.close()
+
+
+def parse_argv(argv):
+    """ parse command line arguments """
+
+    global regexp
+    global recursive
+    global confidence
+    global convert
+
+    long_opts = ['help',
+                 'recursive',
+                 'ignored',
+                 'convert',
+                 'version',
+                 'regexp=']
+
+    # parse command line arguments
+    (opts, args) = niceopt( argv, 'R:hirvc', long_opts)
+
+    for o, a in opts:
+        if o in ('-h', '--help'):
+            print(__doc__); sys.exit(0)
+        if o in ('-v', '--version'):
+            print(__version__); sys.exit(0)
+        if o in ('-c', '--convert'):
+            convert = True
+        if o in ('-i', '--ignored'):
+            ignored = a
+        if o in ('-r', '--recursive'):
+            recursive = True
+        if o in ('-R', '--regexp'):
+            regexp = re.compile(a)
+
+    return args
+
+
+def write_err(e):
+    """ write error message to sys.stderr """
+    sys.stderr.write(e)
+
+
+def create_fmtstr( fnames ):
+    """ create a format string to align files with encoding guess """
+    fmtlen = 1
+    for f in fnames:
+        if len(f) > fmtlen:
+            fmtlen = len(f)
+    return '%-' + str(fmtlen) + 's: %s'
+
+
+def main( argv ):
+    """ parse command line options and start the show """
+    
+    files = []
+    args  = parse_argv( argv )
+
+    for a in args:
+        if os.path.isfile( a ):
+            files.append( a )
+        elif os.path.isdir( a ):
+            if recursive:
+                files += path_walk( a, regexp, ignored )
+            else:
+                write_err("%s: directory ignored (use -recursive)\n"% a)
+        else:
+            write_err("%s: not file or directory (ignoring)\n" % a)
+
+    fmtstr = create_fmtstr( files )
+
+    for f in files:
+        enc, content = guess_encoding( f )
+        if convert:
+            if enc in ('8bit', 'unknown'):
+                write_err('%s: format uknown cannot convert to UTF-8\n'% f)
+            elif enc in ('ascii', 'utf-8'):
+                write_err( fmtstr % ( f, 'UTF-8 already\n' ))
+            else:
+                decoded = content.decode( enc )
+                write_utf8( f, decoded )
+                sys.stdout.write( fmtstr % ( f, enc_info[enc] ) )
+                sys.stdout.write("  ->  UTF-8\n")
+        else:
+            print( fmtstr % ( f, enc_info[enc] ) )
+
+
+
+if __name__ == '__main__':
+
+    try:
+        main(sys.argv[1:])
+    except Exception, inst:
+        sys.stderr.write('%s\n'%inst)
+        sys.exit(1)
+
