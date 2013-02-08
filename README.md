@@ -1,10 +1,10 @@
 
-    a2u - guess encoding and convert it to utf-8
+    au - guess encoding and convert it to utf-8
 
 
 ## What ##
 
-`a2u` guesses file encoding and converts it to [UTF-8][3].
+`au` guesses file encoding and converts it to [UTF-8][3].
 Guessing is not done using [chardet][4] since that tool
 cannot distinct between [ISO-8859-1][6] and [ISO-8859-2][5]
 very well, i.e. it does not work well for Norwegian.
@@ -25,7 +25,7 @@ to your path to run the program.
 
     $ git clone https://github.com/bjarneh/a2u
     $ export PATH=$PATH:$PWD/a2u/bin
-    $ a2u -r a2u
+    $ au -r a2u
 
 And you should see some guess work being done.
 
