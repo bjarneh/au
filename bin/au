@@ -292,7 +292,7 @@ def niceopt(argv, short_opts, long_opts):
             if( e.startswith("-" + opt) or
               ( e.startswith("-" + opt[:-1]) and opt[-1] == "=") ):
                 argv[i] = "-" + e
-    return getopt.getopt(argv, short_opts, long_opts)
+    return getopt.gnu_getopt(argv, short_opts, long_opts)
 
 
 def write_utf8( fname, ustr ):
