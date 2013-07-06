@@ -23,9 +23,9 @@ The script itself can be found inside the `bin` folder, i.e.
 either copy it from there to your `PATH` or add that directory
 to your path to run the program.
 
-    $ git clone https://github.com/bjarneh/a2u
-    $ export PATH=$PATH:$PWD/a2u/bin
-    $ au -r a2u
+    $ git clone https://github.com/bjarneh/au
+    $ export PATH=$PATH:$PWD/au/bin
+    $ au -r au/
 
 And you should see some guess work being done.
 
